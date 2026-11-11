@@ -39,9 +39,13 @@ else, where the siblings also name a heading owning no fenced block
 and a path carrying a `<name>` placeholder -- shapes
 `vectors/README.md` does not carry.
 
-A path upstream has renamed or deleted is reported rather than raising:
-it has no commit to name as a tip, and a pin standing on a file that is
-not there any more is the drift nobody would otherwise notice.
+A path upstream deleted or renamed away reaches this script as an
+ordinary behind-the-tip drift, not as a missing one: the `commits?path=`
+call lists the commit that removed it, so that commit is the tip this
+reads, and the report says the latest commit may have deleted or renamed
+the path rather than only moved its content. None comes back only for a
+path upstream never had a commit touching at all, and that is reported
+rather than raising, with no tip to name.
 
     python .github/scripts/check_vendored_vectors.py \
         vectors/README.md "Vendored vectors behind upstream"
@@ -99,12 +103,14 @@ class Drift:
     latest_date: str
 
     @property
-    def path_is_gone(self) -> bool:
-        """True where upstream has no commit touching the pinned path.
+    def has_no_tip(self) -> bool:
+        """True where upstream has no commit touching the pinned path at all.
 
         The empty `latest_commit` is what says so: there is no tip to
-        name, `_latest_commit` having answered None. Reading it through a
-        name keeps that encoding in one place.
+        name, `_latest_commit` having answered None for a path upstream
+        never held. A deletion or a rename is not this case -- it keeps
+        the commit that did it, which this reads as an ordinary tip.
+        Reading it through a name keeps that encoding in one place.
         """
         return not self.latest_commit
 
@@ -144,11 +150,13 @@ def _entries_at_tip(readme: str) -> tuple[list[Entry], list[str]]:
 def _latest_commit(repo: str, path: str) -> tuple[str, str] | None:
     """Return the sha and date of the most recent commit touching path.
 
-    None where upstream has no commit touching it at all, which means the
-    path has been renamed or deleted: the sharpest drift there is, a pin
-    naming a file that is not there any more. Answering None rather than
-    unpacking one commit out of an empty list is what lets `report` see it
-    as drift with no tip to name, instead of the run going red on a bare
+    None where upstream has no commit touching the path at all, which is a
+    path upstream never held. A deletion or a rename is not that: it keeps
+    the commit that removed the path, which `commits?path=` returns and
+    this reads as an ordinary tip, a behind-the-pin drift the report flags
+    as possibly a deletion. Answering None rather than unpacking one commit
+    out of an empty list is what lets `report` see the never-held case as
+    drift with no tip to name, instead of the run going red on a bare
     `ValueError` and no issue ever opening.
     """
     result = subprocess.run(  # noqa: S603
@@ -183,7 +191,7 @@ def find_drift(readme_path: Path) -> tuple[list[Drift], list[str]]:
     for entry in entries:
         latest = _latest_commit(entry.repo, entry.path)
         if latest is None:
-            # a path upstream no longer has: drift with no tip to name
+            # a path upstream never held a commit for: drift with no tip
             drifted.append(Drift(entry, "", ""))
         elif latest[0] != entry.commit:
             drifted.append(Drift(entry, *latest))
@@ -197,19 +205,20 @@ def _issue_body(readme_path: Path, drifted: list[Drift], skipped: list[str]) -> 
         "",
     ]
     for drift in drifted:
-        if drift.path_is_gone:
+        if drift.has_no_tip:
             lines.append(
                 f"- **{drift.entry.heading}**: pinned to"
                 f" `{drift.entry.commit}`, and `{drift.entry.repo}` has no"
-                f" commit touching `{drift.entry.path}` any more -- renamed,"
-                " moved or deleted upstream"
+                f" commit touching `{drift.entry.path}` at all -- a path it"
+                " never held"
             )
             continue
         lines.append(
             f"- **{drift.entry.heading}**: pinned to `{drift.entry.commit}`,"
             f" upstream's tip of `{drift.entry.path}` is now"
             f" `{drift.latest_commit}` ({drift.latest_date}),"
-            f" `{drift.entry.repo}`"
+            f" `{drift.entry.repo}` -- which may have deleted or renamed"
+            " the path"
         )
     if skipped:
         lines.extend(("", "Not checked by this run, for the reason named:"))
@@ -305,16 +314,17 @@ def main() -> int:
     readme_path, title = Path(args[0]), args[1]
     drifted, skipped = find_drift(readme_path)
     for drift in drifted:
-        if drift.path_is_gone:
+        if drift.has_no_tip:
             print(
-                f"GONE: {drift.entry.heading} pinned to"
+                f"NO COMMIT: {drift.entry.heading} pinned to"
                 f" {drift.entry.commit}, and {drift.entry.repo} has no"
-                f" commit touching {drift.entry.path} any more"
+                f" commit touching {drift.entry.path} at all"
             )
             continue
         print(
             f"BEHIND: {drift.entry.heading} pinned to {drift.entry.commit},"
-            f" tip is {drift.latest_commit} ({drift.latest_date})"
+            f" tip is {drift.latest_commit} ({drift.latest_date}),"
+            " which may have deleted or renamed it"
         )
     for heading in skipped:
         print(f"SKIPPED: {heading}")

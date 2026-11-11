@@ -179,7 +179,7 @@ def test_a_pin_at_the_tip_is_no_drift_and_one_behind_names_the_tip(
     assert [(d.entry.path, d.latest_commit, d.latest_date) for d in drifted] == [
         ("vectors/b.json", _TIP, "2026-03-04")
     ]
-    assert not drifted[0].path_is_gone
+    assert not drifted[0].has_no_tip
     # one commit asked for, by path, from the pinned repository
     assert gh.calls[0] == [
         "api",
@@ -193,20 +193,30 @@ def test_a_pin_at_the_tip_is_no_drift_and_one_behind_names_the_tip(
     ]
 
 
-def test_a_path_upstream_no_longer_has_is_drift_with_no_tip(
+def test_a_path_upstream_never_held_is_drift_with_no_tip(
     monkeypatch: pytest.MonkeyPatch, readme: Path
 ) -> None:
-    """No commit touching the path is drift, not an error."""
+    """No commit touching the path at all is drift, not an error.
+
+    An empty commit list is a path upstream never held, which is the only
+    case `_latest_commit` answers None for: a deletion keeps the commit
+    that did it, so it reaches here as an ordinary behind-the-tip drift.
+    """
     _stub(monkeypatch, _Gh({"vectors/a.json": [], "vectors/b.json": [_PINNED]}))
 
     drifted, _ = check.find_drift(readme)
 
     assert len(drifted) == 1
-    assert drifted[0].path_is_gone
+    assert drifted[0].has_no_tip
 
 
 def test_the_issue_body_tells_the_two_kinds_of_drift_apart(readme: Path) -> None:
-    """A gone path and a moved tip read differently, skips listed after."""
+    """A never-held path and a moved tip read differently, skips after.
+
+    The moved-tip line names the possibility that the new tip deleted or
+    renamed the path, since `commits?path=` cannot tell a deletion from an
+    ordinary edit of the content.
+    """
     entry = check.Entry("h", "upstream/one", "vectors/a.json", _PINNED)
     body = check._issue_body(
         readme,
@@ -217,12 +227,12 @@ def test_the_issue_body_tells_the_two_kinds_of_drift_apart(readme: Path) -> None
     assert body.splitlines()[3:] == [
         (
             f"- **h**: pinned to `{_PINNED}`, and `upstream/one` has no commit"
-            " touching `vectors/a.json` any more -- renamed, moved or deleted"
-            " upstream"
+            " touching `vectors/a.json` at all -- a path it never held"
         ),
         (
             f"- **h**: pinned to `{_PINNED}`, upstream's tip of `vectors/a.json`"
-            f" is now `{_TIP}` (2026-03-04), `upstream/one`"
+            f" is now `{_TIP}` (2026-03-04), `upstream/one` -- which may have"
+            " deleted or renamed the path"
         ),
         "",
         "Not checked by this run, for the reason named:",
@@ -302,7 +312,7 @@ def test_main_prints_each_finding_and_reports_unless_dry(
     *,
     dry_run: bool,
 ) -> None:
-    """GONE, BEHIND and SKIPPED lines, then the issue unless `--dry-run`."""
+    """NO COMMIT, BEHIND and SKIPPED lines, then the issue unless dry."""
     gh = _stub(monkeypatch, _Gh({"vectors/a.json": [], "vectors/b.json": [_TIP]}))
     flag = ["--dry-run"] if dry_run else []
     monkeypatch.setattr(sys, "argv", ["x", str(readme), _TITLE, *flag])
@@ -312,10 +322,13 @@ def test_main_prints_each_finding_and_reports_unless_dry(
     out = capsys.readouterr().out.splitlines()
     assert out == [
         (
-            f"GONE: upstream/one/a.json pinned to {_PINNED}, and upstream/one"
-            " has no commit touching vectors/a.json any more"
+            f"NO COMMIT: upstream/one/a.json pinned to {_PINNED}, and"
+            " upstream/one has no commit touching vectors/a.json at all"
         ),
-        f"BEHIND: upstream/one/b.json pinned to {_PINNED}, tip is {_TIP} (2026-03-04)",
+        (
+            f"BEHIND: upstream/one/b.json pinned to {_PINNED}, tip is {_TIP}"
+            " (2026-03-04), which may have deleted or renamed it"
+        ),
         "SKIPPED: upstream/one/b.json (already documented as behind)",
         "SKIPPED: upstream/two/d.json (no commit to check against)",
         "SKIPPED: upstream/two/e.json (already documented as behind)",
