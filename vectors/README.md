@@ -7,11 +7,11 @@ number produced by code nobody here wrote, and the only thing that makes
 one worth printing is that the code answered a published question
 correctly first.
 
-`tests/vectors_test.py` is what runs them. btclib is held to them too, as
-the btclib-org repositories that now own each file already hold its code --
-`ecc`, `bip32-descriptors` and `base58-bech32`, btclib's own tip carrying
-none of these vectors since they moved out: redundant is the right amount
-for the one package whose numbers this project exists to publish.
+`tests/vectors_test.py` is what runs them. btclib is held to them too,
+here through the `ecc`, `bip32-descriptors` and `base58-bech32` code its
+rows measure, and again by those repositories' own suites, which read
+these vectors: redundant is the right amount for the one package whose
+numbers this project exists to publish.
 
 ## Where each file came from
 
